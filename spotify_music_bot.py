@@ -291,8 +291,8 @@ async def cb_credits(_, cb: CallbackQuery):
     await cb.message.reply_text(
         "<blockquote>\n"
         "<b>Credits</b>\n\n"
-        "<i>This bot was built Mark</b>.\n\n"
-        "<i>Mark did most of the heavy lifting - if it helps you, just give credit. That's all.</i>\n"
+        "<i>This bot was built by @GUARDIANff</b>.\n\n"
+        "<i>He did most of the heavy lifting - if it helps you, just give credit. That's all.</i>\n"
         "</blockquote>",
         parse_mode=ParseMode.HTML,
     )
