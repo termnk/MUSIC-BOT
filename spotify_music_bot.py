@@ -426,19 +426,18 @@ async def main():
         api_hash=config.API_HASH,
         bot_token=config.BOT_TOKEN,
     )
-
     bot.add_handler(MessageHandler(cmd_start,        filters.command("start") & filters.private))
     bot.add_handler(CallbackQueryHandler(cb_credits,  filters.regex("^credits$")))
     bot.add_handler(MessageHandler(handle_message,
                                    filters.text & filters.private & ~filters.command(["start"])))
 
     await mongodb.connect()
+    await start_health_server()   # ← only change
     await bot.start()
     print("[bot] running — waiting for messages...")
     await idle()
     await bot.stop()
     await mongodb.disconnect()
-
 
 if __name__ == "__main__":
     asyncio.run(main())
