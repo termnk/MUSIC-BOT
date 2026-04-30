@@ -3,6 +3,7 @@ import re
 import json
 import asyncio
 import base64
+import aiohttp
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
