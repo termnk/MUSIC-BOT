@@ -283,12 +283,16 @@ async def cmd_start(bot: Client, msg: Message):
     except Exception as e:
         print(f"[db] {e}")
 
-    await msg.reply_text(
-        "<blockquote>\n"
-        "<b>Hey 👋</b>\n"
-        "<b>Send me a Spotify track or playlist link and I'll download it for you.</b>\n\n"
-        "<i>Just paste the link below.</i>\n"
-        "</blockquote>",
+    await msg.reply_photo(
+        photo="https://i.ibb.co/SGZhzcn/x.jpg",  
+        caption=(
+            "<blockquote>\n"
+            "<b>Hey 👋</b>\n"
+            "<b>Send me a Spotify track or playlist link and I'll download it for you.</b>\n\n"
+            "<i>Just paste the link below.</i>\n"
+            "</blockquote>"
+        ),
+        parse_mode=ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("Dev", url=config.DEV_URL, style=ButtonStyle.PRIMARY),
             InlineKeyboardButton("Credits", callback_data="credits", style=ButtonStyle.PRIMARY),
