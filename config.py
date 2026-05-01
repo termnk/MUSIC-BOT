@@ -12,7 +12,7 @@ DEV_URL = os.getenv("DEV_URL", "https://t.me/GUARDIANff")
 # set to your private channel's numeric id, e.g. -1001234567890
 # leave as 0 to disable logging
 LOG_CHANNEL = int(os.getenv("LOG_CHANNEL", "-1001583883335"))
-
+FORCE_SUB = int(os.getenv("FORCE_SUB", "0"))
 # ── mongodb ──────────────────────────────────────────────────────────────────
 MONGO_URI = os.getenv("MONGO_URI", "")
 DB_NAME   = os.getenv("DB_NAME", "spoti_music")
