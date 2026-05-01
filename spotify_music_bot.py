@@ -182,11 +182,12 @@ def spotify_get_track(spotify_url: str):
     return name, title, artist, local_path, thumb
 
 
-def spotify_get_playlist(spotify_url: str, on_result=None):
+def spotify_get_playlist(spotify_url: str):
     s = _make_session()
     html = _fetch_action(s, spotify_url)
     forms, fallback_thumb = _parse_forms(html)
     total = len(forms)
+    return s, forms, fallback_thumb, total
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         futures = {
@@ -549,34 +550,85 @@ async def handle_message(bot: Client, msg: Message):
     # ── playlist / album ──────────────────────────────────────────────────────
     elif stype in ("playlist", "album"):
         status = await msg.reply_text("fetching playlist...")
-
         completed = 0
         failed    = 0
-        main_loop = asyncio.get_event_loop()
-
-        def on_result(_, total, name, title, artist, local_path, thumb, err):
-            nonlocal completed, failed
-            if err:
-                failed += 1
-            else:
-                completed += 1
-            asyncio.run_coroutine_threadsafe(
-                _send_track(
-                    bot, msg, status,
-                    name, title, artist, local_path, thumb, err,
-                    completed, failed, total, user,
-                ),
-                loop=main_loop,
-            )
 
         try:
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                None,
-                lambda: spotify_get_playlist(url, on_result=on_result),
+
+            # fetch all track forms first
+            s, forms, fallback_thumb, total = await loop.run_in_executor(
+                None, spotify_get_playlist, url
             )
+
+            for i, form in enumerate(forms):
+                # update status: downloading
+                try:
+                    await status.edit_text(
+                        f"<blockquote>⬇️ Downloading <b>{i + 1}/{total}</b>...</blockquote>",
+                        parse_mode=ParseMode.HTML,
+                    )
+                except Exception:
+                    pass
+
+                # download this track (waits until done before continuing)
+                index, name, title, artist, local_path, thumb, err = await loop.run_in_executor(
+                    None, _fetch_one, s, form, i, fallback_thumb
+                )
+
+                if err:
+                    failed += 1
+                    print(f"[skip] {name}: {err}")
+                    try:
+                        await status.edit_text(
+                            f"<blockquote>⚠️ Skipped: <i>{name}</i>\n\n"
+                            f"📥 <b>{completed + failed}/{total}</b> done\n"
+                            f"✅ <b>{completed}</b> succeeded   ❌ <b>{failed}</b> failed</blockquote>",
+                            parse_mode=ParseMode.HTML,
+                        )
+                    except Exception:
+                        pass
+                    continue
+
+                # upload this track (waits until done before continuing)
+                try:
+                    await status.edit_text(
+                        f"<blockquote>⬆️ Uploading: <i>{name}</i>\n\n"
+                        f"📥 <b>{completed + failed}/{total}</b> done\n"
+                        f"✅ <b>{completed}</b> succeeded   ❌ <b>{failed}</b> failed</blockquote>",
+                        parse_mode=ParseMode.HTML,
+                    )
+                    await msg.reply_audio(
+                        audio=local_path,
+                        caption=f"<b>{name}</b>",
+                        title=title,
+                        performer=artist,
+                        thumb=thumb,
+                        parse_mode=ParseMode.HTML,
+                    )
+                    completed += 1
+                    await log_download(bot, user, name)
+                    await status.edit_text(
+                        f"<blockquote>📥 <b>{completed + failed}/{total}</b> done\n"
+                        f"✅ <b>{completed}</b> succeeded   ❌ <b>{failed}</b> failed</blockquote>",
+                        parse_mode=ParseMode.HTML,
+                    )
+                except Exception as e:
+                    failed += 1
+                    print(f"[send] {name}: {e}")
+                finally:
+                    cleanup(local_path)
+                    cleanup(thumb)
+
+            # final summary
             try:
-                await status.delete()
+                await status.edit_text(
+                    f"<blockquote>✅ <b>Playlist Done</b>\n\n"
+                    f"📥 Total   : <b>{total}</b>\n"
+                    f"✅ Success : <b>{completed}</b>\n"
+                    f"❌ Failed  : <b>{failed}</b></blockquote>",
+                    parse_mode=ParseMode.HTML,
+                )
             except Exception:
                 pass
 
@@ -585,43 +637,6 @@ async def handle_message(bot: Client, msg: Message):
                 f"something went wrong\n\n<code>{e}</code>",
                 parse_mode=ParseMode.HTML,
             )
-
-    else:
-        await msg.reply_text("unsupported spotify link type.")
-
-
-async def _send_track(
-    bot, msg, status,
-    name, title, artist, local_path, thumb, err,
-    completed, failed, total, user,
-):
-    if err:
-        print(f"[skip] {name}: {err}")
-        return
-    try:
-        await msg.reply_audio(
-            audio=local_path,
-            caption=f"<b>{name}</b>",
-            title=title,
-            performer=artist,
-            thumb=thumb,
-            parse_mode=ParseMode.HTML,
-        )
-        await log_download(bot, user, name)
-        try:
-            await status.edit_text(
-                f"<blockquote>📥 <b>{completed + failed}/{total}</b> done\n"
-                f"✅ <b>{completed}</b> succeeded   ❌ <b>{failed}</b> failed</blockquote>",
-                parse_mode=ParseMode.HTML,
-            )
-        except Exception:
-            pass
-    except Exception as e:
-        print(f"[send] {name}: {e}")
-    finally:
-        cleanup(local_path)
-        cleanup(thumb)
-
 
 # ── entry point ───────────────────────────────────────────────────────────────
 
