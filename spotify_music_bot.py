@@ -21,6 +21,9 @@ from pyrogram.enums import ParseMode, ButtonStyle
 import config
 import mongodb
 
+
+# ── health server ─────────────────────────────────────────────────────────────
+
 async def start_health_server():
     app = web.Application()
     app.router.add_get("/", lambda r: web.Response(text="OK"))
@@ -30,6 +33,9 @@ async def start_health_server():
     port = int(os.getenv("PORT", "8000"))
     await web.TCPSite(runner, "0.0.0.0", port).start()
     print(f"[health] listening on port {port}")
+
+
+# ── constants ─────────────────────────────────────────────────────────────────
 
 DOWNLOAD_DIR = "./downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
@@ -267,9 +273,156 @@ async def log_download(bot: Client, user, name: str) -> None:
         print(f"[log] download: {e}")
 
 
+# ── guards ────────────────────────────────────────────────────────────────────
+
+async def is_subscribed(bot: Client, user_id: int) -> bool:
+    try:
+        member = await bot.get_chat_member(config.FORCE_SUB, user_id)
+        return member.status.name not in ("LEFT", "BANNED", "RESTRICTED")
+    except Exception:
+        return False
+
+
+async def force_sub_check(bot: Client, msg: Message) -> bool:
+    if not config.FORCE_SUB:
+        return True
+    if not await is_subscribed(bot, msg.from_user.id):
+        try:
+            chat = await bot.get_chat(config.FORCE_SUB)
+            if chat.username:
+                link = f"https://t.me/{chat.username}"
+            else:
+                link = chat.invite_link
+                if not link:
+                    link = await bot.export_chat_invite_link(config.FORCE_SUB)
+        except Exception:
+            link = None
+
+        buttons = []
+        if link:
+            buttons.append([InlineKeyboardButton("Join Channel ✅", url=link)])
+
+        await msg.reply_text(
+            "<blockquote>\n"
+            "🔒 <b>Access Restricted</b>\n\n"
+            "You must join our channel to use this bot.\n"
+            "Click the button below, then send /start again.\n"
+            "</blockquote>",
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(buttons) if buttons else None,
+        )
+        return False
+    return True
+
+
+async def ban_check(bot: Client, msg: Message) -> bool:
+    if await mongodb.is_banned(msg.from_user.id):
+        await msg.reply_text(
+            "<blockquote>\n"
+            "🚫 <b>You are banned from using this bot.</b>\n"
+            "</blockquote>",
+            parse_mode=ParseMode.HTML,
+        )
+        return False
+    return True
+
+
+def owner_only(func):
+    async def wrapper(bot: Client, msg: Message):
+        if msg.from_user.id != config.OWNER_ID:
+            await msg.reply_text("⛔ You are not authorized.")
+            return
+        await func(bot, msg)
+    return wrapper
+
+
+# ── owner commands ────────────────────────────────────────────────────────────
+
+@owner_only
+async def cmd_broadcast(bot: Client, msg: Message):
+    if not msg.reply_to_message:
+        await msg.reply_text("Reply to a message to broadcast it.")
+        return
+
+    users   = await mongodb.get_all_users()
+    total   = len(users)
+    success = 0
+    failed  = 0
+
+    status = await msg.reply_text(f"Broadcasting to {total} users...")
+
+    for user_id in users:
+        try:
+            await msg.reply_to_message.forward(user_id)
+            success += 1
+        except Exception:
+            failed += 1
+        await asyncio.sleep(0.05)
+
+    await status.edit_text(
+        f"<blockquote>"
+        f"📢 <b>Broadcast Done</b>\n\n"
+        f"✅ Success : <b>{success}</b>\n"
+        f"❌ Failed  : <b>{failed}</b>\n"
+        f"👥 Total   : <b>{total}</b>"
+        f"</blockquote>",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+@owner_only
+async def cmd_ban(bot: Client, msg: Message):
+    args = msg.text.split()
+    if len(args) < 2:
+        await msg.reply_text("Usage: /ban <user_id>")
+        return
+    try:
+        user_id = int(args[1])
+        await mongodb.ban_user(user_id)
+        await msg.reply_text(
+            f"<blockquote>🚫 User <code>{user_id}</code> has been banned.</blockquote>",
+            parse_mode=ParseMode.HTML,
+        )
+    except ValueError:
+        await msg.reply_text("Invalid user ID.")
+
+
+@owner_only
+async def cmd_unban(bot: Client, msg: Message):
+    args = msg.text.split()
+    if len(args) < 2:
+        await msg.reply_text("Usage: /unban <user_id>")
+        return
+    try:
+        user_id = int(args[1])
+        await mongodb.unban_user(user_id)
+        await msg.reply_text(
+            f"<blockquote>✅ User <code>{user_id}</code> has been unbanned.</blockquote>",
+            parse_mode=ParseMode.HTML,
+        )
+    except ValueError:
+        await msg.reply_text("Invalid user ID.")
+
+
+@owner_only
+async def cmd_stats(bot: Client, msg: Message):
+    total  = len(await mongodb.get_all_users())
+    banned = await mongodb.db.banned.count_documents({})
+    await msg.reply_text(
+        f"<blockquote>"
+        f"📊 <b>Bot Stats</b>\n\n"
+        f"👥 Total Users  : <b>{total}</b>\n"
+        f"🚫 Banned Users : <b>{banned}</b>"
+        f"</blockquote>",
+        parse_mode=ParseMode.HTML,
+    )
+
+
 # ── handlers ──────────────────────────────────────────────────────────────────
 
 async def cmd_start(bot: Client, msg: Message):
+    if not await ban_check(bot, msg):
+        return
     if not await force_sub_check(bot, msg):
         return
 
@@ -287,7 +440,7 @@ async def cmd_start(bot: Client, msg: Message):
         print(f"[db] {e}")
 
     await msg.reply_photo(
-        photo="https://i.ibb.co/SGZhzcn/x.jpg",  
+        photo="https://i.ibb.co/SGZhzcn/x.jpg",
         caption=(
             "<blockquote>\n"
             "<b>Hey 👋</b>\n"
@@ -301,36 +454,14 @@ async def cmd_start(bot: Client, msg: Message):
             InlineKeyboardButton("Credits", callback_data="credits", style=ButtonStyle.PRIMARY),
         ]]),
     )
-    
-async def is_subscribed(bot: Client, user_id: int) -> bool:
-    try:
-        member = await bot.get_chat_member(config.FORCE_SUB, user_id)
-        return member.status.name not in ("LEFT", "BANNED", "RESTRICTED")
-    except Exception:
-        return False
-        
-async def force_sub_check(bot: Client, msg: Message) -> bool:
-    if not await is_subscribed(bot, msg.from_user.id):
-        await msg.reply_text(
-            "<blockquote>\n"
-            "🔒 <b>Access Restricted</b>\n\n"
-            "You must join our channel to use this bot.\n"
-            "Click the button below, then send /start again.\n"
-            "</blockquote>",
-            parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("Join Channel ✅", url=f"https://t.me/{config.FORCE_SUB.lstrip('@')}"),
-            ]]),
-        )
-        return False
-    return True
-    
+
+
 async def cb_credits(_, cb: CallbackQuery):
     await cb.answer()
     await cb.message.reply_text(
         "<blockquote>\n"
         "<b>Credits</b>\n\n"
-        "<i>This bot was built by @GUARDIANff</b>.\n\n"
+        "<b>This bot was built by @GUARDIANff.</b>\n\n"
         "<i>He did most of the heavy lifting - if it helps you, just give credit. That's all.</i>\n"
         "</blockquote>",
         parse_mode=ParseMode.HTML,
@@ -338,10 +469,12 @@ async def cb_credits(_, cb: CallbackQuery):
 
 
 async def handle_message(bot: Client, msg: Message):
+    if not await ban_check(bot, msg):
+        return
     if not await force_sub_check(bot, msg):
         return
 
-    text = msg.text.strip()
+    text  = msg.text.strip()
     match = SPOTIFY_RE.search(text)
     if not match:
         await msg.reply_text("that doesn't look like a spotify link.")
@@ -446,7 +579,8 @@ async def _send_track(
         await log_download(bot, user, name)
         try:
             await status.edit_text(
-                f"<blockquote>📥 <b>{completed + failed}/{total}</b> done\n✅ <b>{completed}</b> succeeded   ❌ <b>{failed}</b> failed</blockquote>",
+                f"<blockquote>📥 <b>{completed + failed}/{total}</b> done\n"
+                f"✅ <b>{completed}</b> succeeded   ❌ <b>{failed}</b> failed</blockquote>",
                 parse_mode=ParseMode.HTML,
             )
         except Exception:
@@ -467,18 +601,26 @@ async def main():
         api_hash=config.API_HASH,
         bot_token=config.BOT_TOKEN,
     )
-    bot.add_handler(MessageHandler(cmd_start,        filters.command("start") & filters.private))
-    bot.add_handler(CallbackQueryHandler(cb_credits,  filters.regex("^credits$")))
+
+    bot.add_handler(MessageHandler(cmd_start,     filters.command("start") & filters.private))
+    bot.add_handler(CallbackQueryHandler(cb_credits, filters.regex("^credits$")))
+    bot.add_handler(MessageHandler(cmd_broadcast, filters.command("broadcast") & filters.private))
+    bot.add_handler(MessageHandler(cmd_ban,       filters.command("ban") & filters.private))
+    bot.add_handler(MessageHandler(cmd_unban,     filters.command("unban") & filters.private))
+    bot.add_handler(MessageHandler(cmd_stats,     filters.command("stats") & filters.private))
     bot.add_handler(MessageHandler(handle_message,
-                                   filters.text & filters.private & ~filters.command(["start"])))
+                                   filters.text & filters.private & ~filters.command(
+                                       ["start", "broadcast", "ban", "unban", "stats"]
+                                   )))
 
     await mongodb.connect()
-    await start_health_server()   # ← only change
+    await start_health_server()
     await bot.start()
     print("[bot] running — waiting for messages...")
     await idle()
     await bot.stop()
     await mongodb.disconnect()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
