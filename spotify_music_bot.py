@@ -270,6 +270,9 @@ async def log_download(bot: Client, user, name: str) -> None:
 # ── handlers ──────────────────────────────────────────────────────────────────
 
 async def cmd_start(bot: Client, msg: Message):
+    if not await force_sub_check(bot, msg):
+        return
+
     user = msg.from_user
     try:
         if await mongodb.is_new_user(user.id):
@@ -298,8 +301,30 @@ async def cmd_start(bot: Client, msg: Message):
             InlineKeyboardButton("Credits", callback_data="credits", style=ButtonStyle.PRIMARY),
         ]]),
     )
-
-
+    
+async def is_subscribed(bot: Client, user_id: int) -> bool:
+    try:
+        member = await bot.get_chat_member(config.FORCE_SUB, user_id)
+        return member.status.name not in ("LEFT", "BANNED", "RESTRICTED")
+    except Exception:
+        return False
+        
+async def force_sub_check(bot: Client, msg: Message) -> bool:
+    if not await is_subscribed(bot, msg.from_user.id):
+        await msg.reply_text(
+            "<blockquote>\n"
+            "🔒 <b>Access Restricted</b>\n\n"
+            "You must join our channel to use this bot.\n"
+            "Click the button below, then send /start again.\n"
+            "</blockquote>",
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("Join Channel ✅", url=f"https://t.me/{config.FORCE_SUB.lstrip('@')}"),
+            ]]),
+        )
+        return False
+    return True
+    
 async def cb_credits(_, cb: CallbackQuery):
     await cb.answer()
     await cb.message.reply_text(
@@ -313,8 +338,10 @@ async def cb_credits(_, cb: CallbackQuery):
 
 
 async def handle_message(bot: Client, msg: Message):
-    text = msg.text.strip()
+    if not await force_sub_check(bot, msg):
+        return
 
+    text = msg.text.strip()
     match = SPOTIFY_RE.search(text)
     if not match:
         await msg.reply_text("that doesn't look like a spotify link.")
