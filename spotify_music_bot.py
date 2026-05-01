@@ -489,14 +489,41 @@ async def handle_message(bot: Client, msg: Message):
         status = await msg.reply_text("fetching track...")
         local_path = thumb = None
         try:
+            # ── check cache first ─────────────────────────────────────────
+            cached = await mongodb.get_cached_track(url)
+            if cached:
+                await status.edit_text("uploading...")
+                if cached.get("thumb_id"):
+                    await msg.reply_photo(
+                        photo=cached["thumb_id"],
+                        caption=f"<b>{cached['name']}</b>",
+                        parse_mode=ParseMode.HTML,
+                    )
+                await msg.reply_audio(
+                    audio=cached["file_id"],
+                    title=cached["title"],
+                    performer=cached["artist"],
+                    thumb=cached.get("thumb_id"),
+                    parse_mode=ParseMode.HTML,
+                )
+                await status.delete()
+                await log_download(bot, user, cached["name"])
+                return
+
+            # ── not cached, download fresh ────────────────────────────────
             loop = asyncio.get_running_loop()
             name, title, artist, local_path, thumb = await loop.run_in_executor(
                 None, spotify_get_track, url
             )
             await status.edit_text("uploading...")
+            thumb_msg = None
             if thumb:
-                await msg.reply_photo(photo=thumb, caption=f"<b>{name}</b>", parse_mode=ParseMode.HTML)
-            await msg.reply_audio(
+                thumb_msg = await msg.reply_photo(
+                    photo=thumb,
+                    caption=f"<b>{name}</b>",
+                    parse_mode=ParseMode.HTML,
+                )
+            audio_msg = await msg.reply_audio(
                 audio=local_path,
                 title=title,
                 performer=artist,
@@ -506,6 +533,11 @@ async def handle_message(bot: Client, msg: Message):
             await status.delete()
             await log_download(bot, user, name)
 
+            # ── save to cache using telegram file_id ──────────────────────
+            file_id  = audio_msg.audio.file_id
+            thumb_id = thumb_msg.photo.file_id if thumb_msg else None
+            await mongodb.save_cached_track(url, file_id, thumb_id, title, artist, name)
+
         except Exception as e:
             await status.edit_text(
                 f"something went wrong\n\n<code>{e}</code>",
@@ -514,7 +546,6 @@ async def handle_message(bot: Client, msg: Message):
         finally:
             cleanup(local_path)
             cleanup(thumb)
-
     # ── playlist / album ──────────────────────────────────────────────────────
     elif stype in ("playlist", "album"):
         status = await msg.reply_text("fetching playlist...")
