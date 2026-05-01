@@ -1,25 +1,23 @@
 """
 We only use it to track unique users so we know when someone is new.
 """
-
 from motor.motor_asyncio import AsyncIOMotorClient
 from config import MONGO_URI, DB_NAME
 
 _client: AsyncIOMotorClient | None = None
-_users = None
+_users  = None
+_banned = None
+_db     = None  # ← module-level db reference
 
 
 async def connect():
-    global _client, _users
-
+    global _client, _db, _users, _banned
     if not MONGO_URI:
         raise RuntimeError("MONGO_URI is not set — add it to your environment variables")
-
     _client = AsyncIOMotorClient(MONGO_URI)
-    db = _client[DB_NAME]
-    _users = db["users"]
-
-    # unique index so we never get duplicate entries
+    _db     = _client[DB_NAME]
+    _users  = _db["users"]
+    _banned = _db["banned"]
     await _users.create_index("user_id", unique=True)
     print(f"[mongodb] connected → {DB_NAME}")
 
@@ -37,7 +35,6 @@ async def is_new_user(user_id: int) -> bool:
 
 
 async def add_user(user_id: int, first_name: str, username: str | None, dc_id: int | None):
-    # upsert so it's safe to call more than once without creating duplicates
     await _users.update_one(
         {"user_id": user_id},
         {
@@ -51,14 +48,18 @@ async def add_user(user_id: int, first_name: str, username: str | None, dc_id: i
         upsert=True,
     )
 
+
 async def ban_user(user_id: int):
-    await db.banned.update_one({"_id": user_id}, {"$set": {"_id": user_id}}, upsert=True)
+    await _banned.update_one({"_id": user_id}, {"$set": {"_id": user_id}}, upsert=True)
+
 
 async def unban_user(user_id: int):
-    await db.banned.delete_one({"_id": user_id})
+    await _banned.delete_one({"_id": user_id})
+
 
 async def is_banned(user_id: int) -> bool:
-    return await db.banned.find_one({"_id": user_id}) is not None
+    return await _banned.find_one({"_id": user_id}) is not None
+
 
 async def get_all_users() -> list:
-    return [doc["_id"] async for doc in db.users.find({}, {"_id": 1})]
+    return [doc["user_id"] async for doc in _users.find({}, {"user_id": 1})]
