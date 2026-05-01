@@ -450,8 +450,8 @@ async def cmd_start(bot: Client, msg: Message):
         ),
         parse_mode=ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("Dev", url=config.DEV_URL, style=ButtonStyle.PRIMARY),
-            InlineKeyboardButton("Credits", callback_data="credits", style=ButtonStyle.PRIMARY),
+            InlineKeyboardButton("Dev 👨‍💻", url=config.DEV_URL),
+            InlineKeyboardButton("Credits ❤️", callback_data="credits"),
         ]]),
     )
 
