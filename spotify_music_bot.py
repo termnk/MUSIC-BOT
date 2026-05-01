@@ -353,7 +353,7 @@ async def cmd_broadcast(bot: Client, msg: Message):
 
     for user_id in users:
         try:
-            await msg.reply_to_message.forward(user_id)
+            await msg.reply_to_message.copy(user_id)
             success += 1
         except Exception:
             failed += 1
