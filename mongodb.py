@@ -63,3 +63,6 @@ async def is_banned(user_id: int) -> bool:
 
 async def get_all_users() -> list:
     return [doc["user_id"] async for doc in _users.find({}, {"user_id": 1})]
+
+async def get_banned_count() -> int:
+    return await _banned.count_documents({})
