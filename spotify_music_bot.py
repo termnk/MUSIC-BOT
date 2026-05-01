@@ -407,7 +407,7 @@ async def cmd_unban(bot: Client, msg: Message):
 @owner_only
 async def cmd_stats(bot: Client, msg: Message):
     total  = len(await mongodb.get_all_users())
-    banned = await mongodb.db.banned.count_documents({})
+    banned = await mongodb.get_banned_count()
     await msg.reply_text(
         f"<blockquote>"
         f"📊 <b>Bot Stats</b>\n\n"
@@ -616,6 +616,7 @@ async def main():
     await mongodb.connect()
     await start_health_server()
     await bot.start()
+    await bot.send_message(config.LOG_CHANNEL, "bot started ✅")
     print("[bot] running — waiting for messages...")
     await idle()
     await bot.stop()
