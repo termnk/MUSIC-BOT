@@ -66,3 +66,20 @@ async def get_all_users() -> list:
 
 async def get_banned_count() -> int:
     return await _banned.count_documents({})
+
+async def get_cached_track(spotify_url: str) -> dict | None:
+    return await _db["cache"].find_one({"url": spotify_url})
+
+async def save_cached_track(spotify_url: str, file_id: str, thumb_id: str | None, title: str, artist: str, name: str):
+    await _db["cache"].update_one(
+        {"url": spotify_url},
+        {"$set": {
+            "url":     spotify_url,
+            "file_id": file_id,
+            "thumb_id": thumb_id,
+            "title":   title,
+            "artist":  artist,
+            "name":    name,
+        }},
+        upsert=True,
+    )
