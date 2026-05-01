@@ -50,3 +50,15 @@ async def add_user(user_id: int, first_name: str, username: str | None, dc_id: i
         },
         upsert=True,
     )
+
+async def ban_user(user_id: int):
+    await db.banned.update_one({"_id": user_id}, {"$set": {"_id": user_id}}, upsert=True)
+
+async def unban_user(user_id: int):
+    await db.banned.delete_one({"_id": user_id})
+
+async def is_banned(user_id: int) -> bool:
+    return await db.banned.find_one({"_id": user_id}) is not None
+
+async def get_all_users() -> list:
+    return [doc["_id"] async for doc in db.users.find({}, {"_id": 1})]
